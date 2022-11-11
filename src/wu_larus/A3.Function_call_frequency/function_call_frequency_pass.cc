@@ -25,6 +25,7 @@ private:
     map<Function *, BlockEdgeFrequencyPass *> *function_block_edge_frequency_results_;
 
     map<Function *, set<Function *>> reachable_functions_;
+    set<Edge> back_edges_;
     map<Function *, bool> visited_functions_;
     map<Edge, double> lfreqs_, back_edge_prob_;
     map<Function *, double> cfreqs_; // Call frequency of each function.
@@ -54,19 +55,21 @@ private:
 PreservedAnalyses FunctionCallFrequencyPass::run(Module &module) {
     CallGraph cg {module};
     Function *entry_func = module.getFunction("main");
-    errs() << "MODULE'S CALL GRAPH\n*******************\n";
-    cg.dump();
+    errs() << "FUNCTION_CALL_FREQUENCY_PASS:\n"
+           << "*****************************\n";
+//    errs() << "MODULE'S CALL GRAPH\n*******************\n";
+//    cg.dump();
 
     {// Step.1.
         for (Function &func : module) {
             visited_functions_[&func] = false;
-            set<Function *> reachable_nodes = {};
+            set<Function *> reachable_nodes = {}; // Graph nodes (functions) reachable by func.
             for (BasicBlock &bb : func) {
                 for (Instruction &instr : bb) {
                     if (auto *call = dyn_cast<CallInst>(&instr)) {// Find call instructions.
                         Edge edge = make_pair(&func, call->getCalledFunction());
                         lfreqs_[edge] = lfreqs_[edge] + // Add block's frequency to edge.
-                            (*function_block_edge_frequency_results_)[&func]->getBlockFrequency(&bb);
+                            function_block_edge_frequency_results_[0][&func]->getBlockFrequency(&bb);
                         reachable_nodes.insert(call->getCalledFunction());
                     }
                 }
@@ -75,7 +78,7 @@ PreservedAnalyses FunctionCallFrequencyPass::run(Module &module) {
         }
         back_edge_prob_ = lfreqs_;
 
-        errs() << "*****[ " << "Called functions (should be equal to call graph)" << " ]*****\n";
+        errs() << "*****[ " << "Called functions" << " ]*****\n";
         for (auto it = reachable_functions_.begin(); it != reachable_functions_.end(); ++it) {
             errs() << "FUNCTION[" << it->first->getName() << "] CALLS:\n";
             for (auto jt = it->second.begin(); jt != it->second.end(); ++jt) {
@@ -84,7 +87,7 @@ PreservedAnalyses FunctionCallFrequencyPass::run(Module &module) {
         } errs() << "\n";
 
         // Print starting probs.
-        errs() << "*****[ " << "Back edge probs" << " ]*****\n";
+        errs() << "*****[ " << "Starting Back Edge Probs" << " ]*****\n";
         for (auto &freq : back_edge_prob_) {
             errs() << "lfreq(" << freq.first.first->getName() << "<" << freq.first.first << "> , "
                    << freq.first.second->getName() << ") = " << freq.second << "\n";
@@ -94,32 +97,37 @@ PreservedAnalyses FunctionCallFrequencyPass::run(Module &module) {
     {// Step.2.
         vector<Function *> dfs_functions = {};
         set<Function *> loop_heads = {};
+
         {// Build a list of functions reached from entry_func.
             vector<Function *> visited_stack = {}; // Detect recursion.
-            dfs_functions.push_back(entry_func);
-            std::function<void(CallGraphNode *)> dfs;
-            dfs = [&dfs_functions, &loop_heads, &visited_stack, &dfs](CallGraphNode *cgn) -> void {
-                assert(cgn->getFunction() && "CGN FUNCTION IS NULL");
-                visited_stack.push_back(cgn->getFunction());
-                for (auto calledFunctionCgn : *cgn) {
-                    if (!calledFunctionCgn.second->getFunction()) continue; // Skip external function calls.
-                    auto found = find(dfs_functions.begin(), dfs_functions.end(), calledFunctionCgn.second->getFunction());
+            dfs_functions.push_back(entry_func); // Start dfs from entry function.
+            std::function<void(Function *)> dfs;
+            dfs = [&](Function *foo) -> void {
+                visited_stack.push_back(foo);
+                for (Function *calledFunction : reachable_functions_[foo]) {
+                    auto found = find(dfs_functions.begin(), dfs_functions.end(), calledFunction);
                     if (found == dfs_functions.end()) {
-                        dfs_functions.push_back(calledFunctionCgn.second->getFunction());
-                        dfs(calledFunctionCgn.second);
+                        dfs_functions.push_back(calledFunction);
+                        dfs(calledFunction);
                     } else {// Check if it is a loop.
                         for (auto f = visited_stack.rbegin(); f != visited_stack.rend(); ++f) {
-                            if ((*f) == calledFunctionCgn.second->getFunction()) {
-// errs() << "Detected loop! " << cgn->getFunction()->getName() << " calls " << (*f)->getName() << "\n";
+                            if (*f == calledFunction) {
+                                //errs() << "DETECTED LOOP: " << foo->getName() << " calls " << f[0]->getName() << "\n";
                                 loop_heads.insert(*f);
+                                back_edges_.insert(make_pair(foo, *f));
                             }
                         }
                     }
                 }
                 visited_stack.pop_back();
             };
-            dfs(cg[dfs_functions.front()]);
+            dfs(dfs_functions.front());
         }
+
+        for (auto &edge : back_edges_) {// Print back edges found.
+            errs() << "Back edge [" << edge.first->getName() << " -> " << edge.second->getName() << "]\n";
+        }
+
         // Foreach function f in reverse depth-first order do.
         for (auto f = dfs_functions.rbegin(); f != dfs_functions.rend(); ++f) {
             auto it = loop_heads.find(*f);
@@ -137,10 +145,14 @@ PreservedAnalyses FunctionCallFrequencyPass::run(Module &module) {
         }
     }
     {// Step.3.
+        errs() << "STEP 3\n";
         auto &reachable = reachable_functions_[entry_func];
         for (auto jt = visited_functions_.begin(); jt != visited_functions_.end(); ++jt) {
             jt->second = !(reachable.find(jt->first) != reachable.end());
+            errs() << "Marking [" << jt->first->getName() << "] as "
+                   << (jt->second ? "Visited" : "Not visited") << "\n";
         }
+        visited_functions_[entry_func] = false;
     }
     {// Step.4.
         propagate_call_freq(entry_func, entry_func, true);
@@ -151,6 +163,13 @@ for (auto jt = visited_functions_.begin(); jt != visited_functions_.end(); ++jt)
 errs() << "Function [" << jt->first->getName() << "] = " << jt->second << "\n";
 }
     */
+/*
+    // Finally, sum incoming freqs.
+    for (Function *foo) {
+        for (BasicBlock &bb : func) {
+        }
+    }
+*/
     errs() << "<<FINAL RESULTS>>\n\n";
     errs() << "*****[ " << "Back edge probs" << " ]*****\n";
     for (auto &freq : back_edge_prob_) {
@@ -162,6 +181,13 @@ errs() << "Function [" << jt->first->getName() << "] = " << jt->second << "\n";
         errs() << "gfreq(" << freq.first.first->getName() << "<" << freq.first.first << "> , " << freq.first.second->getName()
                << ") = " << freq.second << "\n";
     } errs() << "\n";
+
+    // Finally, sum function's call frequencies.
+    errs() << "*****[ " << "CFreq" << " ]*****\n";
+    for (auto freq : cfreqs_) {
+        errs() << "Function [" << freq.first->getName() << "] = " << freq.second << "\n";
+    } errs() << "\n";
+
     return PreservedAnalyses::all();
 }
 
@@ -179,16 +205,16 @@ void FunctionCallFrequencyPass::propagate_call_freq(Function *f, Function *head,
             if (it->second.find(f) != it->second.end()) {// f is called by it->first.
                 Function *fp = it->first;
                 Edge fp_f = make_pair(fp, f);
-                if (!visited_functions_[fp] && (back_edge_prob_.find(fp_f) == back_edge_prob_.end())) return;
+                if (!visited_functions_[fp] && (back_edges_.find(fp_f) == back_edges_.end())) return;
                 fpreds.push_back(it->first);
             }
         cfreqs_[f] = (f == head ? 1 : 0);
         double cyclic_probability = 0;
         for (auto fp : fpreds) {
             Edge fp_f = make_pair(fp, f);
-            if (is_final && (back_edge_prob_.find(fp_f) != back_edge_prob_.end()))
+            if (is_final && (back_edges_.find(fp_f) != back_edges_.end()))
                 cyclic_probability += back_edge_prob_[fp_f];
-            else if (back_edge_prob_.find(fp_f) == back_edge_prob_.end())
+            else if (back_edges_.find(fp_f) == back_edges_.end())
                 cfreqs_[f] += gfreqs_[fp_f];
         }
         if (cyclic_probability > 1 - epsilon) cyclic_probability = 1 - epsilon;
@@ -209,7 +235,9 @@ void FunctionCallFrequencyPass::propagate_call_freq(Function *f, Function *head,
     {// 3. Propagate to successor nodes.
         for (auto fi : reachable_functions_[f]) {
             Edge f_fi = make_pair(f, fi);
-            if (back_edge_prob_.find(f_fi) == back_edge_prob_.end())
+            errs() << "Propagate to successor node from [" << f->getName() << "] to ["
+                   << fi->getName() << "]\n";
+            if (back_edges_.find(f_fi) == back_edges_.end())
                 propagate_call_freq(fi, head, is_final);
         }
     }

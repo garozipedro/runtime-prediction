@@ -15,7 +15,6 @@ ninja
 echo ''
 echo '* Compiling test file...'
 TEST=permutation
-# Note: -O0 generates .ll file with attribute optnone, so -passes are not run.
 $LLVM_DIR/bin/clang -emit-llvm -S -O0 ../test_progs/${TEST}.c -o ./${TEST}.ll
 echo '* Running opt on test...'
 $LLVM_DIR/bin/opt -load-pass-plugin ./lib${PASSNAME}.so -passes="${PASSNAME}" -disable-output ${TEST}.ll
