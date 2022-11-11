@@ -163,13 +163,21 @@ for (auto jt = visited_functions_.begin(); jt != visited_functions_.end(); ++jt)
 errs() << "Function [" << jt->first->getName() << "] = " << jt->second << "\n";
 }
     */
-/*
-    // Finally, sum incoming freqs.
-    for (Function *foo) {
-        for (BasicBlock &bb : func) {
+
+    // Sum incoming cfreqs for functions not propagated to.
+    for (Function &func : module) {
+        if (cfreqs_.find(&func) == cfreqs_.end()) {
+            errs() << "NOT FOUND [" << func.getName() << "]\n";
+            for (auto reachables : reachable_functions_) {
+                if (&func != reachables.first && (reachables.second.find(&func) != reachables.second.end())) {
+                    errs() << "\tFunction [" << reachables.first->getName() << "] reaches [" << func.getName() << "]\n";
+                    Edge edge = make_pair(reachables.first, &func);
+                    cfreqs_[&func] += gfreqs_[edge];
+                }
+            }
         }
     }
-*/
+
     errs() << "<<FINAL RESULTS>>\n\n";
     errs() << "*****[ " << "Back edge probs" << " ]*****\n";
     for (auto &freq : back_edge_prob_) {
@@ -182,11 +190,21 @@ errs() << "Function [" << jt->first->getName() << "] = " << jt->second << "\n";
                << ") = " << freq.second << "\n";
     } errs() << "\n";
 
-    // Finally, sum function's call frequencies.
     errs() << "*****[ " << "CFreq" << " ]*****\n";
     for (auto freq : cfreqs_) {
         errs() << "Function [" << freq.first->getName() << "] = " << freq.second << "\n";
     } errs() << "\n";
+
+    // Finally, multiply block freqs by cfreqs.
+    for (auto freq : cfreqs_) {
+        for (BasicBlock &bb : *freq.first) {
+            errs() << "Updating [" << freq.first->getName() << "/" << &bb << "] freq from "
+                   << function_block_edge_frequency_results_[0][freq.first]->getBlockFrequency(&bb)
+                   << " to ";
+            function_block_edge_frequency_results_[0][freq.first]->updateBlockFrequency(&bb, freq.second);
+            errs() << function_block_edge_frequency_results_[0][freq.first]->getBlockFrequency(&bb) << "\n";
+        }
+    }
 
     return PreservedAnalyses::all();
 }

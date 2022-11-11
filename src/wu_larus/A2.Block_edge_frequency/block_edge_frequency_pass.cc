@@ -13,6 +13,7 @@ struct BlockEdgeFrequencyPass : PassInfoMixin<BlockEdgeFrequencyPass> {
     double getEdgeFrequency(Edge &edge) const;
     double getBlockFrequency(const BasicBlock *BB) const;
     double getBackEdgeProbabilities(Edge &edge);
+    void updateBlockFrequency(const BasicBlock *bb, double freq); // Multiply by containing function's frequency.
 
 private:
     BlockEdgeFrequencyPass() {}
@@ -274,6 +275,11 @@ void BlockEdgeFrequencyPass::propagateFreq(BasicBlock *head) {
         for (RI = backedges.rbegin(), RE = backedges.rend(); RI != RE; ++RI)
             stack.push_back(*RI);
     } while (!stack.empty());
+}
+
+void BlockEdgeFrequencyPass::updateBlockFrequency(const BasicBlock *bb, double freq) {
+    assert((blockFrequencies_.find(bb) != blockFrequencies_.end()) && "BasicBlock not found!");
+    blockFrequencies_[bb] *= freq;
 }
 
 /*
