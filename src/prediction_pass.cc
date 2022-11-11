@@ -3,6 +3,7 @@
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/PostDominators.h>
+#include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Dominators.h>
@@ -67,6 +68,25 @@ llvm::PreservedAnalyses PredictionPass::run(llvm::Module &module, llvm::ModuleAn
         &function_block_edge_frequency_results
     };
     functionCallFrequencyPass.run(module);
+
+    //*TargetTransformInfo TTI = &getAnalysis().getTTI(fn);
+    //TTI->getInstructionCost(Inst, TargetTransformInfo::TargetCostKind::TCK_RecipThroughput)
+
+    double total_cost = 0;
+    for (Function &func : module) {
+        TargetTransformInfo &tira = fam.getResult<TargetIRAnalysis>(func);
+        for (BasicBlock &bb : func) {
+            for (Instruction &instr : bb) {
+                InstructionCost cost = tira.getInstructionCost(&instr, TargetTransformInfo::TargetCostKind::TCK_Latency);
+                if (cost.getValue().hasValue()) {
+                    double icost = cost.getValue().getValue();
+                    total_cost += icost * function_block_edge_frequency_results[&func]->getBlockFrequency(&bb);
+//                    errs() << "Instruction [" << instr << "] / Cost = [" << icost << "]\n";
+                }
+            }
+        }
+    }
+    errs() << "Calculated latency = [" << total_cost << "]\n";
 
     return llvm::PreservedAnalyses::all();
 }
