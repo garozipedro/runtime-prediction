@@ -68,7 +68,7 @@ PreservedAnalyses BlockEdgeFrequencyPass::run(Function &func, FunctionAnalysisMa
     backEdgeProbabilities_.clear();
 
     // Print.
-    // std::map<Edge, double> edgeFrequencies_;
+/*
     errs() << "[" << func.getName()<< "] Edge frequencies:\n";
     for (auto freq : edgeFrequencies_) {
         errs() <<
@@ -80,7 +80,7 @@ PreservedAnalyses BlockEdgeFrequencyPass::run(Function &func, FunctionAnalysisMa
         errs() <<
             "(" << freq.first << ") = " << freq.second << "\n";
     } errs() << "\n";
-
+*/
     return llvm::PreservedAnalyses::all();
 }
 
@@ -278,8 +278,10 @@ void BlockEdgeFrequencyPass::propagateFreq(BasicBlock *head) {
 }
 
 void BlockEdgeFrequencyPass::updateBlockFrequency(const BasicBlock *bb, double freq) {
-    assert((blockFrequencies_.find(bb) != blockFrequencies_.end()) && "BasicBlock not found!");
-    blockFrequencies_[bb] *= freq;
+//    assert((blockFrequencies_.find(bb) != blockFrequencies_.end()) && "BasicBlock not found!");
+    if (!bb || !freq) return;
+    if (blockFrequencies_.find(bb) != blockFrequencies_.end())
+        blockFrequencies_[bb] *= freq;
 }
 
 /*

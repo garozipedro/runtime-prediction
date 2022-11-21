@@ -55,12 +55,13 @@ PreservedAnalyses BranchPredictionPass::run(Function &func, FunctionAnalysisMana
 
     // Print.
     // std::map<Edge, double> edgeProbabilities_;
+/*
     errs() << "[" << func.getName()<< "] Branch probabilities:\n";
     for (auto prob : edgeProbabilities_) {
         errs() <<
             "(" << prob.first.first << ", " << prob.first.second << ") = " << prob.second << "\n";
     } errs() << "\n";
-
+*/
     return PreservedAnalyses::all();;
 }
 

@@ -38,6 +38,17 @@ struct PredictionPass : public llvm::PassInfoMixin<PredictionPass> {
     llvm::PreservedAnalyses run(llvm::Module &, llvm::ModuleAnalysisManager &);
 };
 
+//static cl::opt<string> prediction_cost_kind("prediction-cost-kind", cl::init("latency"), cl::Hidden, cl::desc("TargetCostKind used for measuring instruction cost."));
+
+cl::opt<std::string> cost_opt(
+    "prediction-cost-kind",
+    cl::init("latency"),
+//    cl::init("recipthroughput"),
+//    cl::init("codesize"),
+//    cl::init("sizeandlatency"),
+    cl::desc("Specify cost kind used"),
+    cl::value_desc("one of: recipthroughput, latency, codesize, sizeandlatency"));
+
 llvm::PreservedAnalyses PredictionPass::run(llvm::Module &module, llvm::ModuleAnalysisManager &mam) {
     map<Function *, BranchPredictionPass *> function_branch_prediction_results {};
     map<Function *, BlockEdgeFrequencyPass *> function_block_edge_frequency_results {};
@@ -45,7 +56,7 @@ llvm::PreservedAnalyses PredictionPass::run(llvm::Module &module, llvm::ModuleAn
     FunctionAnalysisManager fam;
     pb.registerFunctionAnalyses(fam);
 
-    errs() << "Module: " << module.getName() << "\n";
+//    errs() << "Module: " << module.getName() << "\n";
     for (Function &func : module) {// Run wu's algorithms 1 and 2 for each function.
         // Skip declared only functions (prototypes).
         if (func.empty() && !func.isMaterializable()) continue;
@@ -73,11 +84,17 @@ llvm::PreservedAnalyses PredictionPass::run(llvm::Module &module, llvm::ModuleAn
     //TTI->getInstructionCost(Inst, TargetTransformInfo::TargetCostKind::TCK_RecipThroughput)
 
     double total_cost = 0;
+    TargetTransformInfo::TargetCostKind cost_kind =
+        cost_opt == "recipthroughput" ? TargetTransformInfo::TargetCostKind::TCK_RecipThroughput :
+        cost_opt == "codesize" ? TargetTransformInfo::TargetCostKind::TCK_CodeSize :
+        cost_opt == "sizeandlatency" ? TargetTransformInfo::TargetCostKind::TCK_SizeAndLatency :
+        TargetTransformInfo::TargetCostKind::TCK_Latency; // Default to latency.
+
     for (Function &func : module) {
         TargetTransformInfo &tira = fam.getResult<TargetIRAnalysis>(func);
         for (BasicBlock &bb : func) {
             for (Instruction &instr : bb) {
-                InstructionCost cost = tira.getInstructionCost(&instr, TargetTransformInfo::TargetCostKind::TCK_Latency);
+                InstructionCost cost = tira.getInstructionCost(&instr, cost_kind);
                 if (cost.getValue().hasValue()) {
                     double icost = cost.getValue().getValue();
                     total_cost += icost * function_block_edge_frequency_results[&func]->getBlockFrequency(&bb);
@@ -86,7 +103,12 @@ llvm::PreservedAnalyses PredictionPass::run(llvm::Module &module, llvm::ModuleAn
             }
         }
     }
-    errs() << "Calculated latency = [" << total_cost << "]\n";
+/*
+    errs() << "Module [" << module.getName() << "] // "
+           << "Cost opt [" << cost_opt << "] // "
+           << "Result = [" << total_cost << "]\n";
+*/
+    errs() << total_cost << "\n";
 
     return llvm::PreservedAnalyses::all();
 }
