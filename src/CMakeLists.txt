@@ -7,7 +7,7 @@ set(LT_LLVM_CMAKE_CONFIG_DIR "${LT_LLVM_INSTALL_DIR}/lib/cmake/llvm/")
 list(APPEND CMAKE_PREFIX_PATH "${LT_LLVM_CMAKE_CONFIG_DIR}")
 
 # STEP 2. Load LLVM config from ... LLVMConfig.cmake.
-find_package(LLVM 14.0.0 REQUIRED CONFIG)
+find_package(LLVM 15.0.2 REQUIRED CONFIG)
 
 include_directories(${LLVM_INCLUDE_DIRS})
 if (NOT LLVM_ENABLE_RTTI)
