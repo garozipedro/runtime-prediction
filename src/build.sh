@@ -1,7 +1,12 @@
 #! /bin/bash
 
 PASSNAME="prediction_pass"
-source vars.sh
+
+if [[ $1 ]]; then
+    LLVM_DIR=$1
+else
+    LLVM_DIR=/usr/lib/llvm-15
+fi
 
 echo 'LLVM_DIR = [' $LLVM_DIR ']'
 
