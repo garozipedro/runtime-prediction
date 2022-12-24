@@ -38,8 +38,6 @@ struct PredictionPass : public llvm::PassInfoMixin<PredictionPass> {
     llvm::PreservedAnalyses run(llvm::Module &, llvm::ModuleAnalysisManager &);
 };
 
-//static cl::opt<string> prediction_cost_kind("prediction-cost-kind", cl::init("latency"), cl::Hidden, cl::desc("TargetCostKind used for measuring instruction cost."));
-
 cl::opt<std::string> cost_opt(
     "prediction-cost-kind",
     cl::init("latency"),
@@ -83,20 +81,25 @@ llvm::PreservedAnalyses PredictionPass::run(llvm::Module &module, llvm::ModuleAn
     //*TargetTransformInfo TTI = &getAnalysis().getTTI(fn);
     //TTI->getInstructionCost(Inst, TargetTransformInfo::TargetCostKind::TCK_RecipThroughput)
 
-    double total_cost = 0;
     TargetTransformInfo::TargetCostKind cost_kind =
         cost_opt == "recipthroughput" ? TargetTransformInfo::TargetCostKind::TCK_RecipThroughput :
         cost_opt == "codesize" ? TargetTransformInfo::TargetCostKind::TCK_CodeSize :
         cost_opt == "sizeandlatency" ? TargetTransformInfo::TargetCostKind::TCK_SizeAndLatency :
-        TargetTransformInfo::TargetCostKind::TCK_Latency; // Default to latency.
+        cost_opt == "latency" ? TargetTransformInfo::TargetCostKind::TCK_Latency :
+        ((errs() << "WARNING! Invalid option --prection-cost-kind=" << cost_opt << " using 'latency' instead.\n"),
+         cost_opt = "latency", TargetTransformInfo::TargetCostKind::TCK_Latency); // Default to latency.
 
+    double total_cost = 0;
+    map<llvm::StringRef, double> function_costs = {};
     for (Function &func : module) {
         TargetTransformInfo &tira = fam.getResult<TargetIRAnalysis>(func);
+        function_costs[func.getName()] = 0;
         for (BasicBlock &bb : func) {
             for (Instruction &instr : bb) {
                 InstructionCost cost = tira.getInstructionCost(&instr, cost_kind);
                 if (cost.getValue().hasValue()) {
                     double icost = cost.getValue().getValue();
+                    function_costs[func.getName()] += icost * function_block_edge_frequency_results[&func]->getBlockFrequency(&bb);
                     total_cost += icost * function_block_edge_frequency_results[&func]->getBlockFrequency(&bb);
 //                    errs() << "Instruction [" << instr << "] / Cost = [" << icost << "]\n";
                 }
@@ -108,7 +111,11 @@ llvm::PreservedAnalyses PredictionPass::run(llvm::Module &module, llvm::ModuleAn
            << "Cost opt [" << cost_opt << "] // "
            << "Result = [" << total_cost << "]\n";
 */
-    errs() << total_cost << "\n";
+    errs() << "Cost kind: " << cost_opt << "\n";
+    errs() << "Total cost: " << total_cost << "\n";
+    for (const auto &fcost : function_costs) {
+        errs() << fcost.first << ": " << fcost.second << "\n";
+    }
 
     return llvm::PreservedAnalyses::all();
 }
